@@ -10,6 +10,7 @@ from websocket import create_connection
 from connectivity.gateio import Api
 from connectivity.gateio.ws import Connection, WebSocketResponse, Configuration
 from connectivity.ExchangeManagerBase import ExchangeManagerBase
+from core.Instrument import Instrument
 from core.MyEnums import OrderStatus, OrderSide
 from core.Orders import SpotLimitOrder, SpotMarketOrder
 
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class XXXGateIOManager(ExchangeManagerBase):
-    def __init__(self, inInstrument: str, inConn):
+    def __init__(self, inInstrument: Instrument, inConn):
         super().__init__(inInstrument, inConn)
 
     def genSign(self, channel, event, timestamp):

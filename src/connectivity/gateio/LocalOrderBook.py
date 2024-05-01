@@ -2,17 +2,22 @@ import asyncio
 import itertools
 import logging
 import typing
+from datetime import datetime
 from decimal import Decimal
 
 import aiohttp
 from sortedcontainers import SortedList
 
+import Static
+from connectivity.LocalOrderBookBase import LocalOrderBookBase
 from connectivity.gateio import Api
 from connectivity.gateio.ws import Configuration, Connection, WebSocketResponse
 from connectivity.gateio.ws.Spot import SpotOrderBookUpdateChannel
+from core.Instrument import Instrument, Instruments
+from marketmaker.Strategy import Strategy, RiskParam
 
 logger = logging.getLogger(__name__)
-
+logger.setLevel(logging.ERROR)
 
 class SimpleRingBuffer(object):
     def __init__(self, size: int):
@@ -44,7 +49,7 @@ class SimpleRingBuffer(object):
 
         def __len__(self):
             return self.max
-        #end of class __Full
+        # end of class __Full
 
     def __iter__(self):
         for i in self.data:
@@ -80,7 +85,7 @@ class OrderBookEntry:
 
 
 class OrderBook:
-    def __init__(self, instrument: str, last_id: id, asks: SortedList, bids: SortedList):
+    def __init__(self, instrument: Instrument, last_id: id, asks: SortedList, bids: SortedList):
         self.instrument = instrument
         self.id = last_id
         self.asks = asks
@@ -103,7 +108,6 @@ class OrderBook:
             else:
                 # price found, update amount
                 book[idx].amount = entry.amount
-
 
     def __str__(self):
         return '\n  id: %d\n  asks:\n%s\n  bids:\n%s' % (self.id,
@@ -134,8 +138,9 @@ class OrderBook:
         self.id = ws_update['u']
 
 
-class LocalOrderBook(object):
-    def __init__(self, instrument: str, conn: Connection, orderBookUpdateQueue: asyncio.Queue):
+class LocalOrderBook(LocalOrderBookBase):
+    def __init__(self, instrument: Instrument, conn: Connection, orderBookUpdateQueue: asyncio.Queue):
+        super().__init__(instrument, orderBookUpdateQueue)
         self.conn = conn
         self.instrument = instrument
         self.q = asyncio.Queue()
@@ -162,7 +167,8 @@ class LocalOrderBook(object):
             async with aiohttp.ClientSession() as session:
                 # aiohttp does not allow boolean parameter variable
                 async with session.get('https://api.gateio.ws/api/v4/spot/order_book',
-                                       params={'currency_pair': self.instrument, 'limit': 5, 'with_id': 'true'}) as response:
+                                       params={'currency_pair': str(self.instrument), 'limit': RiskParam.Depth.value,
+                                               'with_id': 'true'}) as response:
                     if response.status != 200:
                         logger.warning("failed to retrieve base order book: ", await response.text())
                         await asyncio.sleep(1)
@@ -187,17 +193,19 @@ class LocalOrderBook(object):
                 return ob
 
     async def run(self):
-        while True:
+        while Static.KeepRunning:
             self.ob = await self.construct_base_order_book()
-            while True:
-                result = await self.q.get() #from websocket
+            while Static.KeepRunning:
+                result = await self.q.get()  # from websocket
                 try:
                     self.ob.update(result)
-                    await self.orderBookUpdateQueue.put(result)
+                    #await self.orderBookUpdateQueue.put(result)
                 except ValueError as e:
                     logger.error("failed to update: %s", e)
                     # reconstruct order book
                     break
+        logging.error("Kill Switch Triggered")
+
 
     def _cache_update(self, ws_update):
         if len(self.buf) > 0:
@@ -216,26 +224,31 @@ class LocalOrderBook(object):
             conn.close()
             raise response.error
         # ignore subscribe success response
-        if 's' not in response.result or response.result.get('s') != self.instrument:
+        if 's' not in response.result or response.result.get('s') != str(self.instrument):
             return
         result = response.result
         logger.debug("received update: %s", result)
         assert isinstance(result, dict)
         self._cache_update(result)
+        self.timestamp = datetime.now()
         await self.q.put(result)
 
-
     def initialize(self):
-        channel = SpotOrderBookUpdateChannel(self.conn, self.ws_callback)
-        channel.subscribe([self.instrument, "100ms"])
+        self.channel = SpotOrderBookUpdateChannel(self.conn, self.ws_callback)
+        self.channel.subscribe([str(self.instrument), "100ms"])
 
         loop = asyncio.get_event_loop()
         self.ob = loop.run_until_complete(self.construct_base_order_book())
         loop.create_task(self.run())
 
+
+    def release(self):
+        self.channel.unsubscribe([str(self.instrument), "100ms"])
+        self.conn.unregister(self.channel.unsubscribe())
+
 if __name__ == '__main__':
     conn = Connection(Configuration(api_key=Api.API_KEY, api_secret=Api.SECRET_KEY))
-    instrument = "BTC_USDT"
+    instrument = Instruments.instruments["BTC_USDT"]
 
     loop = asyncio.get_event_loop()
 
@@ -251,4 +264,5 @@ if __name__ == '__main__':
         for task in asyncio.Task.all_tasks(loop):
             task.cancel()
         loop.close()
+
 
