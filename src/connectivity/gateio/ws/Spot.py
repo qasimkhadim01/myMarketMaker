@@ -1,5 +1,9 @@
+import logging
+
 from connectivity.gateio.ws.Client import BaseChannel
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.ERROR)
 
 class SpotTickerChannel(BaseChannel):
     name = 'spot.tickers'

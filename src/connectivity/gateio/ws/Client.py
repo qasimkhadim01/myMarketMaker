@@ -12,6 +12,7 @@ import websockets
 from websockets.exceptions import WebSocketException
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.ERROR)
 
 
 class GateWebsocketError(Exception):
