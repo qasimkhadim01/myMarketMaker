@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from datetime import datetime
 import pandas as pd
 
@@ -13,14 +15,14 @@ class OrderBookCollector():
         self.initialize()
 
     async def update(self):
-        while True:
+        while Static.KeepRunning:
             item = await self.exchangeManager.orderBookUpdateQueue.get()
             now = pd.to_datetime(datetime.now()).date()
             if len(self.collectorDf) > 0 :
                 lastDate = pd.to_datetime(self.collectorDf[-1:].iloc[0,0]).date()
                 if now != lastDate:
                     self.collectorDf.to_csv(
-                        self.orderBookTickStore + "\\" + now.strftime("%m%d%Y") + "\\" + self.exchangeManager.localOrderBook.instrument + ".csv")
+                        self.orderBookTickStore + "\\" + now.strftime("%m%d%Y") + "\\" + str(self.exchangeManager.localOrderBook.instrument) + ".csv")
                     self.initialize()
 
             for i in range(min(len(self.exchangeManager.localOrderBook.bids), len(self.exchangeManager.localOrderBook.asks))):
@@ -30,7 +32,8 @@ class OrderBookCollector():
                     ,'askPrice': self.exchangeManager.localOrderBook.asks[i].price
                     ,'askSize': self.exchangeManager.localOrderBook.asks[i].amount}
                 self.collectorDf.loc[len(self.collectorDf.index)] = newRow
-
+            logging.error("Kill Switch Triggered")
+            asyncio.get_event_loop().stop()
 
     def initialize(self):
         self.collectorDf = pd.DataFrame(columns=['timestamp', 'bidPrice', 'bidSize', 'askPrice', 'askSize'])
@@ -42,4 +45,4 @@ class OrderBookCollector():
 
     def release(self):
         self.collectorDf.to_csv(
-            self.orderBookTickStore + "\\" + datetime.now().strftime("%d%m%Y") + "\\" + self.localOrderBook.instrument + ".csv")
+            self.orderBookTickStore + "\\" + datetime.now().strftime("%d%m%Y") + "\\" + str(self.exchangeManager.instrument) + ".csv")
