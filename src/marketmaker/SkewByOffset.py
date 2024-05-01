@@ -1,23 +1,37 @@
+import logging
+
+from numpy import sign
+
 from math import floor
 
 from core.Instrument import Coin
-from marketmaker.RiskManager import RiskManager
 from decimal import Decimal
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 class SkewByOffset:
-    _maxSkew = 5
+    _maxSkew = 4
+    skewMidFactor = Decimal(0.3)
     def __init(self):
         pass
+
     @staticmethod
-    def getBidSkew(coin: Coin):
-        skew:Decimal = 0 if RiskManager.risks[coin].position > 0 else SkewByOffset._fraction(coin)
+    def getBidSkew(coin: Coin, position: Decimal, riskLimit):
+        skew: Decimal = SkewByOffset._fraction(coin, position, riskLimit) if position > 0 else 0
         return skew
+
     @staticmethod
-    def getAskSkew(coin: Coin):
-        skew: Decimal = 0 if RiskManager.risks[coin].position > 0 else SkewByOffset._fraction(coin)
+    def getAskSkew(coin: Coin, position, riskLimit):
+        skew: Decimal = SkewByOffset._fraction(coin, position, riskLimit) if position < 0 else 0
         return skew
+
     @staticmethod
-    def _fraction(coin):
-        fraction: Decimal = min(RiskManager.risks[coin].position / RiskManager.riskLimits[coin],
-                                1) * SkewByOffset._maxSkew
+    def _fraction(coin, position, riskLimit):
+        fraction: Decimal = min((abs(position) / riskLimit), 1)
         return fraction
+    @staticmethod
+    def getMidSkew(coin: Coin, position, riskLimit):
+        skew: Decimal = abs(position) / riskLimit
+        skew = skew * sign(position)
+        return skew

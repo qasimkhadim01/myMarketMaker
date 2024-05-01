@@ -3,23 +3,48 @@ import logging
 from decimal import Decimal
 from datetime import datetime
 
-from Test.SimulatedExchange import SimulatedExchange
-from connectivity.gateio.ws import Connection, Configuration
-from marketmaker.SkewByOffset import SkewByOffset
-from marketmaker.Strategy import Strategy
-from math import floor
+from numpy import sign
 
 import Static
-from connectivity.ExchangeManagerBase import ExchangeManagerBase
+import math
+from connectivity import LocalOrderBookBase
+from connectivity.gateio.ws import Connection, Configuration
+from marketmaker.SkewByOffset import SkewByOffset
+from marketmaker.Strategy import Strategy, RiskParam
 from connectivity.gateio import Api
 from core.Instrument import Instrument, Instruments, Coin
 from core.MyEnums import OrderSide, Role
 from core.Orders import FilledOrder, TickEvent, SpotMarketOrder
 from marketmaker.MarketCache import MarketCache
-from marketmaker.Risk import Risk
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
+class Risk:
+    def __init__(self, coin: Coin):
+        self.coin = coin
+        self.position: Decimal = Decimal(0)
+        self.positionValue: Decimal = Decimal(0.0)
+        self.meanHoldingTime = 0
+        self.costBasis = 0
+
+    def processLeg(self, order: FilledOrder):
+        signedAmount: Decimal = order.getSignedAmount() if order.instrument.base == self.coin else order.getQuoteSignedAmount()
+        coinMarketPrice = RiskManager.localOrderBooks[self.coin].ob.bids[0].price
+
+        exAntePosition: Decimal = self.position
+        self.position = self.position + signedAmount
+        self.positionValue = self.position * coinMarketPrice
+
+        if (exAntePosition == 0) or (sign(signedAmount) == sign(exAntePosition)):
+            costBasisChange = signedAmount * coinMarketPrice
+        elif math.fabs(signedAmount) <= math.fabs(exAntePosition):
+            reductionFraction: Decimal = abs(signedAmount) / abs(exAntePosition)
+            costBasisChange = -self.costBasis * reductionFraction
+        else:
+            costBasisChange = self.position * coinMarketPrice - self.costBasis
+
+        self.costBasis += costBasisChange
 
 class RiskManager:
     riskLimits: {} = {}
@@ -27,66 +52,63 @@ class RiskManager:
     _pnlCoin: Coin = None
     _positionUpdateQueue: asyncio.Queue = None
     _totalVolume: Decimal = 0
-    _exchangeManager: ExchangeManagerBase = None
     _skew: SkewByOffset = None
+    localOrderBooks: dict[Coin, LocalOrderBookBase] = dict[Coin, LocalOrderBookBase]
 
-    def __init__(self, coins: {}, pnlCoin: Coin, exchangeManager: ExchangeManagerBase,
-                 positionUpdateQueue: asyncio.Queue):
-        RiskManager._positionUpdateQueue = positionUpdateQueue
-        RiskManager._risks = {}
+    def __init__(self, coins: {}, pnlCoin: Coin, localOrderBooks: dict[Coin, LocalOrderBookBase]):
+        # RiskManager._positionUpdateQueue = positionUpdateQueue
+        RiskManager.risks = {}
         RiskManager._pnlCoin = pnlCoin
-        RiskManager._exchangeManager = exchangeManager
-        [RiskManager._risks.update({coin: Risk(coin)}) for coin in coins]
-        [RiskManager._riskLimits.update({coin: Strategy.RiskLimit.value}) for coin in coins]
+        [RiskManager.risks.update({coin: Risk(coin)}) for coin in coins]
+        [RiskManager.riskLimits.update({coin: RiskParam.RiskLimit.value}) for coin in coins]
         RiskManager._skew = SkewByOffset()
-
-        if RiskManager._pnlCoin not in RiskManager._risks.keys():
-            RiskManager._risks[pnlCoin] = Risk(pnlCoin)
+        RiskManager.localOrderBooks = localOrderBooks
+        if RiskManager._pnlCoin not in RiskManager.risks.keys():
+            RiskManager.risks[pnlCoin] = Risk(pnlCoin)
 
     async def run(self):
-        while True:
+        while Static.KeepRunning:
             result = await RiskManager._positionUpdateQueue.get()
             if isinstance(result, FilledOrder):
                 self.onPositionUpdate(result)
-
-    def onPositionUpdate(self, order: FilledOrder):
-        midUsdPrice: Decimal = MarketCache.getMidPrice(order.instrument.base, abs(order.amount))
-        usdAmt = abs(order.amount) * midUsdPrice
-
-        RiskManager._totalVolume += usdAmt
-
-        RiskManager._risks.get(order.instrument.base).processLeg(order)
-        RiskManager._risks.get(order.instrument.counter).processLeg(order)
-        logger.debug(f"onPositionUpdate completed {order}")
-
-        RiskManager.isRiskLimitTriggered()
+        logging.error("Kill Switch Triggered")
 
     @staticmethod
-    def isRiskLimitTriggered():
-        for coin in coins:
-            if RiskManager._risks[coin].position > RiskManager._riskLimits[coin]:
-                excess: Decimal = RiskManager._risks[coin].position - RiskManager._riskLimits[coin]
-                excess += Decimal(0.1) * RiskManager._risks[coin].position
-                marketOrder: SpotMarketOrder = SpotMarketOrder(RiskManager.nextOrderId(),
-                                                               Instruments.instruments.get(Instrument(coin, Coin.USDT)),
-                                                               OrderSide.Sell, Decimal(excess),
-                                                               RiskManager._exchangeManager.localOrderBook.ob.bids[0])
-                RiskManager._exchangeManager.sendMarketOrder(marketOrder)
+    def onPositionUpdate(order: FilledOrder):
+        midUsdTPrice: Decimal = RiskManager.localOrderBooks[order.instrument.base].ob.bids[0].price
+        usdtAmt = abs(order.amount) * midUsdTPrice
+
+        RiskManager._totalVolume += usdtAmt
+
+        RiskManager.risks.get(order.instrument.base).processLeg(order)
+        RiskManager.risks.get(order.instrument.counter).processLeg(order)
+        logger.debug(f"{order}")
 
     @staticmethod
-    def skew(coin: Coin):
-        bidSkew = RiskManager._skew.getBidSkew(coin)
-        askSkew = RiskManager._skew.getAskSkew(coin)
+    def skewByOffset(coin: Coin):
+        bidSkew = RiskManager._skew.getBidSkew(coin, RiskManager.risks[coin].positionValue, RiskManager.riskLimits[coin])
+        askSkew = RiskManager._skew.getAskSkew(coin, RiskManager.risks[coin].positionValue, RiskManager.riskLimits[coin])
         return bidSkew, askSkew
 
+    def midSkew(coin: Coin):
+        return RiskManager._skew.getMidSkew(coin, RiskManager.risks[coin].positionValue, RiskManager.riskLimits[coin])
+
     @staticmethod
-    def nextOrderId():
-        orderId = "t-" + Api.subAccount + "_rm_" + str(Static.orderCounter)
-        Static.orderCounter += 1
-        return orderId
+    def realizedPnl():
+        realizedPnl = 0
+        for key, value in RiskManager.risks.items():
+            realizedPnl += value.costBasis
+        return realizedPnl
 
+    @staticmethod
+    def unRealizedPnl():
+        unrealizedPnl = 0
+        for key, value in RiskManager.risks.items():
+            rate = RiskManager.localOrderBooks[key].midTob
+            if key != RiskManager._pnlCoin:
+                unrealizedPnl += value.position * rate - value.costBasis
 
-
+        return unrealizedPnl
 async def simulate():
     instrument = Instruments.instruments["UMEE_USDT"]
 
@@ -115,10 +137,8 @@ if __name__ == "__main__":
     conn = Connection(Configuration(api_key=Api.API_KEY, api_secret=Api.SECRET_KEY))
     instrument = "BTC_USDT"
 
-    exchangeManager = SimulatedExchange(instrument, conn)
-
     marketCache = MarketCache(coins, pnlCoin)
-    rm: RiskManager = RiskManager(coins, pnlCoin, exchangeManager, queue)
+    rm: RiskManager = RiskManager(coins, pnlCoin, queue)
 
     loop = asyncio.get_event_loop()
     loop.run_until_complete(simulate())

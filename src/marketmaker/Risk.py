@@ -1,3 +1,5 @@
+import logging
+
 from numpy import sign
 
 import math
@@ -6,7 +8,10 @@ from decimal import Decimal
 from core.Instrument import Coin
 from core.Orders import FilledOrder
 from marketmaker.MarketCache import MarketCache
+from marketmaker.RiskManager import RiskManager
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 class Risk:
     def __init__(self, coin: Coin):
@@ -17,7 +22,7 @@ class Risk:
 
     def processLeg(self, order: FilledOrder):
         signedAmount: Decimal = order.getSignedAmount() if order.instrument.base == self.coin else order.getQuoteSignedAmount()
-        coinMarketPrice = MarketCache.getPrice(self.coin, signedAmount, order.side)
+        coinMarketPrice = RiskManager.localOrderBooks[self.coin]
 
         exAntePosition: Decimal = self.position
         self.position += signedAmount

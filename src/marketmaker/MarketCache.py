@@ -1,15 +1,16 @@
 from datetime import datetime
 from decimal import Decimal
 
+from connectivity.gateio.LocalOrderBook import LocalOrderBook
 from core.Instrument import Coin, Instruments, Instrument
 from core.MyEnums import OrderSide
 from core.Orders import TickEvent
 
 
 class MarketCache:
-    _cache = {}
+    _localOrderBooks = dict[Coin, LocalOrderBook]
 
-    def __init__(self, coins: [], pnlCurrency: Coin):
+    def __init__(self, coins: [], pnlCurrency: Coin, localOrderBooks: dict[Coin, LocalOrderBook]):
         self.pnlCurrency = pnlCurrency
         [MarketCache._cache.update({coin: TickEvent(datetime.now(),
                                                     Instruments.instruments.get(Instrument(Coin.BTC, Coin.USDT)),
