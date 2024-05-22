@@ -10,7 +10,7 @@ import math
 from connectivity import LocalOrderBookBase
 from connectivity.gateio.ws import Connection, Configuration
 from marketmaker.SkewByOffset import SkewByOffset
-from marketmaker.Strategy import Strategy, RiskParam
+from marketmaker.Strategy import Strategy, GlobalRiskLimit
 from connectivity.gateio import Api
 from core.Instrument import Instrument, Instruments, Coin
 from core.MyEnums import OrderSide, Role
@@ -19,7 +19,7 @@ from marketmaker.MarketCache import MarketCache
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
+Static.appLoggers.append(logger)
 class Risk:
     def __init__(self, coin: Coin):
         self.coin = coin
@@ -60,7 +60,7 @@ class RiskManager:
         RiskManager.risks = {}
         RiskManager._pnlCoin = pnlCoin
         [RiskManager.risks.update({coin: Risk(coin)}) for coin in coins]
-        [RiskManager.riskLimits.update({coin: RiskParam.RiskLimit.value}) for coin in coins]
+        [RiskManager.riskLimits.update({coin: GlobalRiskLimit}) for coin in coins]
         RiskManager._skew = SkewByOffset()
         RiskManager.localOrderBooks = localOrderBooks
         if RiskManager._pnlCoin not in RiskManager.risks.keys():

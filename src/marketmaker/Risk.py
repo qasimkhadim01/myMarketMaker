@@ -12,6 +12,7 @@ from marketmaker.RiskManager import RiskManager
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+Static.appLoggers.append(logger)
 
 class Risk:
     def __init__(self, coin: Coin):

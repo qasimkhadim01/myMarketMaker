@@ -5,6 +5,7 @@ import Static
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+Static.appLoggers.append(logger)
 
 class KillSwitch:
     def __init__(self, loop):
