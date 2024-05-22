@@ -1,7 +1,7 @@
 import asyncio
 from abc import ABC
 from decimal import Decimal
-from typing import List
+from typing import List, Dict
 
 import Static
 from connectivity.LocalOrderBookBase import LocalOrderBookBase
@@ -14,42 +14,39 @@ import logging
 from marketmaker.RiskManager import RiskManager
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-
+logger.setLevel(logging.ERROR)
+Static.appLoggers.append(logger)
 
 
 class ExchangeManagerBase(ABC):
-    def __init__(self, instrument: Instrument, conn: Connection):
-        self.instrument = instrument
+    def __init__(self, instruments: List[Instrument], conn: Connection):
+        self.instruments = instruments
         self.conn = conn
-        self.quotesQueue = asyncio.Queue()
-        self.orderBookUpdateQueue: asyncio.Queue = asyncio.Queue()
+        self.quotesQueue:Dict[Instrument, asyncio.Queue] = dict()
+        [self.quotesQueue.update({instrument:asyncio.Queue()}) for instrument in instruments]
+        self.localOrderBookUpdateQueue:Dict[Instrument, asyncio.Queue] = dict()
+        [self.localOrderBookUpdateQueue.update({instrument:asyncio.Queue()}) for instrument in instruments]
         self.myOrdersUpdateQueue = asyncio.Queue()
-        self.topOfBookQueue = asyncio.Queue()
+
+        self.topOfBookQueue:Dict[Instrument, asyncio.Queue] = dict()
+        [self.topOfBookQueue.update({instrument: asyncio.Queue()}) for instrument in instruments]
         self.requestCounterId = 0
-        self.localOrderBook = None
-
-    def initialize(self):
-        self.localOrderBook.initialize()  # only start receiving call backs once all other essentials init
-
+        self.localOrderBooks:Dict[Instrument, LocalOrderBookBase] = dict()
     def release(self):
         self.conn.close()
 
-    def LocalOrderBook(self) -> LocalOrderBookBase:
-        return self.localOrderBook
-
-    @property
-    def nextRequestId(self):
-        requestId = "t-req_" + str(self.instrument) + "_" + Api.subAccount + "_" + str(self.requestCounterId)
-        self.requestCounterId += 1
-        return requestId
-
     async def run(self):
-        while Static.KeepRunning:
-            result = await self.orderBookUpdateQueue.get()
-            logger.debug(f"order book update")
-            await self.quotesQueue.put(result)
-        logging.error("Kill Switch Triggered")
+        async def process(instrument:Instrument, queue:asyncio.Queue):
+            while Static.KeepRunning:
+                result = await queue.get()
+                await self.quotesQueue[instrument].put(result)
+            logging.error("Kill Switch Triggered")
+
+        loop = asyncio.get_event_loop()
+
+
+        [loop.create_task(process(item[0], item[1])) for item in self.localOrderBookUpdateQueue.items()]
+
 
     async def runMyOrderUpdate(self):
         while Static.KeepRunning:
@@ -60,6 +57,7 @@ class ExchangeManagerBase(ABC):
                     filledOrderAggregates: dict[str, FilledOrder] = dict()
                     for filledOrder in filledOrders:
                         # simply sum of the volume here, as the VWAP is only important for risk position
+                        # position is updated een
                         RiskManager.onPositionUpdate(filledOrder)
                         if filledOrder.id not in filledOrderAggregates.keys():
                             filledOrderAggregates[filledOrder.id] = FilledOrder(filledOrder.id, filledOrder.instrument
@@ -67,7 +65,9 @@ class ExchangeManagerBase(ABC):
                                             , filledOrder.price, filledOrder.role)
                         filledOrderAggregates[filledOrder.id].filledAmount += filledOrder.filledAmount
                         filledOrderAggregates[filledOrder.id].amount += filledOrder.amount
-                    [await self.quotesQueue.put(filledOrder) for filledOrder in filledOrderAggregates.values()]
+                    [await self.quotesQueue[filledOrder.instrument].put(filledOrder) for filledOrder in filledOrderAggregates.values()]
+                else:
+                    logger.error(f"not expecting {filledOrders}")
             except:
                 logger.exception('')
         logging.error("Kill Switch Triggered")
