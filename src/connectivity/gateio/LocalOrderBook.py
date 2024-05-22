@@ -9,15 +9,16 @@ import aiohttp
 from sortedcontainers import SortedList
 
 import Static
-from connectivity.LocalOrderBookBase import LocalOrderBookBase
+from connectivity.LocalOrderBookBase import LocalOrderBookBase, OrderBookEntry, OrderBook
 from connectivity.gateio import Api
 from connectivity.gateio.ws import Configuration, Connection, WebSocketResponse
 from connectivity.gateio.ws.Spot import SpotOrderBookUpdateChannel
 from core.Instrument import Instrument, Instruments
-from marketmaker.Strategy import Strategy, RiskParam
+from marketmaker.Strategy import Strategy, OrderBookDepth
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
+Static.appLoggers.append(logger)
 
 class SimpleRingBuffer(object):
     def __init__(self, size: int):
@@ -71,84 +72,18 @@ class SimpleRingBuffer(object):
     def __len__(self):
         return len(self.data)
 
-
-class OrderBookEntry:
-    def __init__(self, price, amount):
-        self.price: Decimal = Decimal(price)
-        self.amount: str = amount
-
-    def __eq__(self, other):
-        return self.price == other.price
-
-    def __str__(self):
-        return '(%s, %s)' % (self.price, self.amount)
-
-
-class OrderBook:
-    def __init__(self, instrument: Instrument, last_id: id, asks: SortedList, bids: SortedList):
-        self.instrument = instrument
-        self.id = last_id
-        self.asks = asks
-        self.bids = bids
-
-    @classmethod
-    def update_entry(cls, book: SortedList, entry: OrderBookEntry):
-        if Decimal(entry.amount) == Decimal('0'):
-            # remove price if amount is 0
-            try:
-                book.remove(entry)
-            except ValueError:
-                pass
-        else:
-            try:
-                idx = book.index(entry)
-            except ValueError:
-                # price not found, insert it
-                book.add(entry)
-            else:
-                # price found, update amount
-                book[idx].amount = entry.amount
-
-    def __str__(self):
-        return '\n  id: %d\n  asks:\n%s\n  bids:\n%s' % (self.id,
-                                                         '\n'.join([' ' * 4 + str(a) for a in self.asks]),
-                                                         '\n'.join([' ' * 4 + str(b) for b in self.bids]))
-
-    def update(self, ws_update):
-        if ws_update['u'] < self.id + 1:
-            # ignore older message
-            return
-        if ws_update['U'] > self.id + 1:
-            raise ValueError("base order book ID %d falls behind update between %d-%d" %
-                             (self.id, ws_update['U'], ws_update['u']))
-        # start from the first message which satisfies U <= ob.id+1 <= u
-        logger.debug("current id %d, update from %s", self.id, ws_update)
-        for ask in ws_update['a']:
-            entry = OrderBookEntry(*ask)
-            self.update_entry(self.asks, entry)
-        for bid in ws_update['b']:
-            entry = OrderBookEntry(*bid)
-            self.update_entry(self.bids, entry)
-        # update local order book ID
-        # check order book overlapping
-        if len(self.asks) > 0 and len(self.bids) > 0:
-            if self.asks[0].price <= self.bids[0].price:
-                raise ValueError("price overlapping, min ask price %s not greater than max bid price %s" % (
-                    self.asks[0].price, self.bids[0].price))
-        self.id = ws_update['u']
-
-
 class LocalOrderBook(LocalOrderBookBase):
-    def __init__(self, instrument: Instrument, conn: Connection, orderBookUpdateQueue: asyncio.Queue):
-        super().__init__(instrument, orderBookUpdateQueue)
+    def __init__(self, instrument: Instrument, conn: Connection, localOrderBookUpdateQueue: asyncio.Queue):
+        super().__init__(instrument, localOrderBookUpdateQueue)
         self.conn = conn
         self.instrument = instrument
         self.q = asyncio.Queue()
-        self.orderBookUpdateQueue = orderBookUpdateQueue
+        self.localOrderBookUpdateQueue = localOrderBookUpdateQueue
         self.buf = SimpleRingBuffer(size=500)
-        self.ob = OrderBook(self.instrument, 0, asks=SortedList(), bids=SortedList())
         loop = asyncio.get_event_loop()
-        self.ob = loop.run_until_complete(self.construct_base_order_book())
+        self.ob: OrderBook = loop.run_until_complete(self.construct_base_order_book())
+        self.topOfBookBid = self.ob.bids[0]
+        self.topOfBookAsk = self.ob.asks[0]
 
     @property
     def id(self):
@@ -167,7 +102,7 @@ class LocalOrderBook(LocalOrderBookBase):
             async with aiohttp.ClientSession() as session:
                 # aiohttp does not allow boolean parameter variable
                 async with session.get('https://api.gateio.ws/api/v4/spot/order_book',
-                                       params={'currency_pair': str(self.instrument), 'limit': RiskParam.Depth.value,
+                                       params={'currency_pair': str(self.instrument), 'limit': OrderBookDepth,
                                                'with_id': 'true'}) as response:
                     if response.status != 200:
                         logger.warning("failed to retrieve base order book: ", await response.text())
@@ -199,7 +134,7 @@ class LocalOrderBook(LocalOrderBookBase):
                 result = await self.q.get()  # from websocket
                 try:
                     self.ob.update(result)
-                    #await self.orderBookUpdateQueue.put(result)
+                    #await self.localOrderBookUpdateQueue.put(result)
                 except ValueError as e:
                     logger.error("failed to update: %s", e)
                     # reconstruct order book
@@ -230,7 +165,7 @@ class LocalOrderBook(LocalOrderBookBase):
         logger.debug("received update: %s", result)
         assert isinstance(result, dict)
         self._cache_update(result)
-        self.timestamp = datetime.now()
+        self.obTimeStamp = datetime.now()
         await self.q.put(result)
 
     def initialize(self):
@@ -248,7 +183,7 @@ class LocalOrderBook(LocalOrderBookBase):
 
 if __name__ == '__main__':
     conn = Connection(Configuration(api_key=Api.API_KEY, api_secret=Api.SECRET_KEY))
-    instrument = Instruments.instruments["BTC_USDT"]
+    instrument = Instruments.instruments["UMEE_USDT"]
 
     loop = asyncio.get_event_loop()
 

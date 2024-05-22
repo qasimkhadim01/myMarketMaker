@@ -10,7 +10,6 @@ webSocket= "wss://api.gateio.ws/ws/v4/"
 restHost = "https://api.gateio.ws"
 restPrefix = "/api/v4"
 prefix = "/api/v4"
-restUrlOrders = '/spot/orders'
 restHeaders = {'Accept': 'application/json', 'Content-Type': 'application/json'}
 
 
