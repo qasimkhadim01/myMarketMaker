@@ -12,7 +12,7 @@ import websockets
 from websockets.exceptions import WebSocketException
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.ERROR)
+logger.setLevel(logging.WARNING)
 
 
 class GateWebsocketError(Exception):
@@ -199,7 +199,8 @@ class Connection(object):
                     logger.error("max reconnect time %d reached, give it up", self.cfg.max_retry)
                     stopped = True
                     continue
-                await asyncio.sleep(0.5 * retried)
+                #await asyncio.sleep(0.5 * retried)
+                await asyncio.sleep(120)
             else:
                 tasks: typing.List[asyncio.Task] = list()
                 try:
