@@ -17,6 +17,7 @@ if __name__ == '__main__':
                         handlers=[logging.FileHandler(Static.logFile, mode='w'),
                                   logging.StreamHandler()])
     logger = logging.getLogger()
+    Static.appLoggers.append(logger)
 
     conn = Connection(Configuration(api_key=Api.API_KEY, api_secret=Api.SECRET_KEY))
     instrument = Instruments.instruments.get(str(Instrument(Coin.UX, Coin.USDT)))

@@ -12,6 +12,7 @@ if __name__ == '__main__':
     FORMAT = "[%(asctime)s:%(filename)s:%(lineno)s - %(funcName)10s() ] %(message)s"
     logging.basicConfig(level=logging.ERROR, format=FORMAT)
     logger = logging.getLogger()
+    Static.appLoggers.append(logger)
 
     conn = Connection(Configuration(api_key=Api.API_KEY, api_secret=Api.SECRET_KEY))
     instrument = Instruments.instruments["BTC_USDT"]

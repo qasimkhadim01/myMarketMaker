@@ -1,3 +1,6 @@
+from logging import Logger
+from typing import List
+
 from core.Instrument import Coin, Instrument, Instruments
 
 myApiKeyObsolete = "f4a64af3ff9c584d39395fa1c4477026"
@@ -9,3 +12,4 @@ LOGFORMAT = "[%(asctime)s:%(filename)s:%(lineno)s - %(funcName)20s() ] %(message
 KeepRunning = True
 KillInstrument = Instruments.instruments.get(str(Instrument(Coin.XRP, Coin.USDT)))
 Kill = False
+appLoggers: List[Logger] = list()
