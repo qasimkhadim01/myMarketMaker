@@ -6,7 +6,7 @@ import Static
 from connectivity.gateio import Api
 from connectivity.gateio.GateIOManager import GateIOManager
 from connectivity.gateio.ws import Connection, Configuration, WebSocketResponse
-from connectivity.gateio.ws.Spot import SpotUserTradesChannel
+from connectivity.gateio.ws.Spot import SpotUserTradesChannel, SpotOrderChannel
 from core.Instrument import Instruments
 from core.MyEnums import OrderSide, Role
 from core.Orders import FilledOrder, SpotLimitOrder, SpotMarketOrder
@@ -45,19 +45,16 @@ async def myCallback(conn: Connection, response: WebSocketResponse):
 
 
 
-    if 'event' in response:
-        logger.debug("received update: %s", result)
-
-
 async def run():
     while True:
-        await asyncio.sleep(20)
-        marketOrder = SpotMarketOrder(id="t-qmarket_1", instrument=instrument, side=OrderSide.Buy, amount=amount, price=price)
-        exchangeManager.sendMarketOrder(marketOrder)
-#        limitOrder = SpotLimitOrder(id="t-qlimit_1", instrument=instrument, side=OrderSide.Sell, amount=amount,
- #                                   price=price)
- #       exchangeManager.sendLimitOrder(limitOrder)
-        await asyncio.sleep(1000)
+        await asyncio.sleep(2000)
+        #marketOrder = SpotMarketOrder(id="t-qmarket_1", instrument=instrument, side=OrderSide.Buy, amount=amount, price=price)
+        #exchangeManager.sendMarketOrder(marketOrder)
+        limitOrder = SpotLimitOrder(id="t-qlimit_1", instrument=instrument, side=OrderSide.Sell, amount=amount,
+                                    price=price)
+        exchangeManager.sendLimitOrder(limitOrder)
+        await asyncio.sleep(10)
+        exchangeManager.cancelLimitOrder(limitOrder)
         break
 
 
@@ -65,18 +62,20 @@ if __name__ == "__main__":
     conn = Connection(Configuration(api_key=Api.API_KEY, api_secret=Api.SECRET_KEY))
     sInstrument = "UMEE_USDT"
     instrument = Instruments.instruments.get(sInstrument)
-    amount = Decimal(60000)
-    price = Decimal(0.004)
+    amount = Decimal(1500)
+    price = Decimal(0.0025)
 
-    channel = SpotUserTradesChannel(conn, myCallback)
+    channel = SpotOrderChannel(conn, myCallback)
     channel.subscribe([sInstrument])
 
     #the spot user trades channel is already subscribed to in the below
     exchangeManager = GateIOManager(instrument, conn)
     exchangeManager.initialize()
 
+    #marketOrder = SpotMarketOrder(id="t-qMarket_1", instrument=instrument, side=OrderSide.Buy, amount=amount, price=price)
+    #exchangeManager.sendMarketOrder(marketOrder)
 
-    # limitOrder = SpotLimitOrder(id="t-qlimit_1", instrument=instrument, side=OrderSide.Buy, amount=amount, price=price)
+    #limitOrder = SpotLimitOrder(id="t-qlimit_1", instrument=instrument, side=OrderSide.Buy, amount=amount, price=price)
     # exchangeManager.sendLimitOrder(limitOrder)
     # limitOrder.price = price = Decimal(0.0035)
     # exchangeManager.amendLimitOrder(limitOrder)
