@@ -2,6 +2,7 @@ class Coin:
     UX = "UMEE"
     USDT = "USDT"
     BTC = "BTC"
+    ETH = "ETH"
     XRP = "XRP"
 
 class Instrument:
@@ -18,6 +19,7 @@ class Instrument:
 class Instruments:
     instruments = {"UMEE_USDT": Instrument(Coin.UX, Coin.USDT, 6, 6),
                    "BTC_USDT": Instrument(Coin.BTC, Coin.USDT,  6, 2),
+                   "ETH_USDT": Instrument(Coin.ETH, Coin.USDT, 6, 2),
                    "XRP_USDT": Instrument(Coin.XRP, Coin.USDT),
                    "USDT_USDT": Instrument(Coin.USDT, Coin.USDT)
                    }

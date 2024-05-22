@@ -19,19 +19,20 @@ class Order:
         self.instrument = instrument
         self.side = side
         self.amount = amount
-        self.price = Decimal(price)
+        self.price = Decimal(round(price, self.instrument.pricePrecision))
         self.status = OrderStatus.New
         self.filledAmount = 0
         self.strategy:Strategy = None
         self.creationTime = int(time.time())
         self.completionTime =int(time.time())
+        self.updateTime = int(time.time())
 
     def __eq__(self, other):
         return self.price == other.price and self.side == other.side
 
     def __str__(self):
         return (f"{self.timestamp.strftime('%H:%M:%S')},id={self.id}, {str(self.instrument)}, price={self.price:.{self.instrument.pricePrecision}f}, amount={self.amount:.{self.instrument.amountPrecision}f}"
-                f", filledAmount={self.filledAmount:.{self.instrument.amountPrecision}f}, {self.side}, {self.status}, {self.strategy.__class__.__name__}, {self.__class__.__name__}")
+                f", filledAmount={self.filledAmount:.{self.instrument.amountPrecision}f}, {self.side}, {self.status}, {self.strategy.__class__.__name__}, {self.__class__.__name__}, updateTime={time.ctime(self.updateTime)}")
     @staticmethod
     def nextOrderId() -> str:
         orderId = "t-" + Api.subAccount + "_" + str(Order.orderCounter)
