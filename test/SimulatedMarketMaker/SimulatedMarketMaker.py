@@ -1,14 +1,14 @@
 import asyncio
 import logging
-from sortedcontainers import SortedList
+from typing import List
+
 import Static
 from Test.SumulatedMarketMaker.SimulatedExchange import SimulatedExchange
 from connectivity.LocalOrderBookBase import LocalOrderBookBase, OrderBookEntry, OrderBook
 from connectivity.gateio import Api
 from connectivity.gateio.ws import Connection, Configuration
-from core.Instrument import Coin, Instruments
+from core.Instrument import Coin, Instruments, Instrument
 from marketmaker.RiskManager import RiskManager
-from marketmaker.Strategy import Strategy, BestStrategy
 from marketmaker.QuoteManager import QuoteManager
 
 FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
@@ -18,14 +18,17 @@ logging.basicConfig(level=logging.DEBUG, format=FORMAT,
 logger = logging.getLogger()
 
 conn = Connection(Configuration(api_key=Api.API_KEY, api_secret=Api.SECRET_KEY))
-instrument = Instruments.instruments.get("BTC_USDT")
+instruments: List[Instrument] = list()
+instrument = Instruments.instruments["UMEE_USDT"]
+instruments.append(instrument)
+
 pnlCoin = Coin.USDT
 coins = [instrument.base]
 
 exchangeManager = SimulatedExchange(instrument, conn)
 quoteManager = QuoteManager(instrument,  exchangeManager)
 localOrderBooks = {}
-[localOrderBooks.update({coin: exchangeManager.localOrderBook}) for coin in coins]
+[localOrderBooks.update({instrument.base: exchangeManager.localOrderBooks[instrument]}) for instrument in instruments]
 usdtLocalOrderBook = LocalOrderBookBase(instrument, None)
 bids = []
 bids.append(OrderBookEntry(1, 100000))

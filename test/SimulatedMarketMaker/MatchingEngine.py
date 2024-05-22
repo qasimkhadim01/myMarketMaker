@@ -8,6 +8,8 @@ from core.MyEnums import OrderSide, Role
 from core.Orders import SpotLimitOrder, FilledOrder, Order, SpotMarketOrder
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.ERROR)
+Static.appLoggers.append(logger)
 
 
 class MatchingEngine:
@@ -58,7 +60,7 @@ class MatchingEngine:
 
     async def runLmitOrderMatcher(self):
         while Static.KeepRunning:
-            await asyncio.sleep(30)
+            await asyncio.sleep(60)
             rnd = round(random())
             partialFilledOrders: List[FilledOrder] = list()
             if rnd == 0 and len(self.bids) > 0:
@@ -79,13 +81,11 @@ class MatchingEngine:
 
                 filledOrders.append(filledOrder)
                 logger.debug(f"matched market  {filledOrder}")
-            await self.myOrdersUpdateQueue.put(filledOrders)
+            if len(filledOrders) > 0: await self.myOrdersUpdateQueue.put(filledOrders)
 
     async def runMarketOrderMatcher(self):
         while Static.KeepRunning:
             await asyncio.sleep(3)
-            rnd = round(random())
-            matchedOrder = None
 
             partialFilledOrders: List[FilledOrder] = list()
             if len(self.marketOrders) > 0:
@@ -102,6 +102,6 @@ class MatchingEngine:
 
                 filledOrders.append(filledOrder)
                 logger.debug(f"matched market  {filledOrder}")
-            await self.myOrdersUpdateQueue.put(filledOrders)
+            if len(filledOrders) > 0: await self.myOrdersUpdateQueue.put(filledOrders)
 
 
