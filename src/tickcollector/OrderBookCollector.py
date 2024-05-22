@@ -6,6 +6,10 @@ import pandas as pd
 import Static
 from connectivity.gateio.GateIOManager import GateIOManager
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+Static.appLoggers.append(logger)
+
 
 class OrderBookCollector():
     def __init__(self, orderBookTickStore, exchangeManager: GateIOManager):
@@ -16,7 +20,7 @@ class OrderBookCollector():
 
     async def update(self):
         while Static.KeepRunning:
-            item = await self.exchangeManager.orderBookUpdateQueue.get()
+            item = await self.exchangeManager.localOrderBookUpdateQueue.get()
             now = pd.to_datetime(datetime.now()).date()
             if len(self.collectorDf) > 0 :
                 lastDate = pd.to_datetime(self.collectorDf[-1:].iloc[0,0]).date()
